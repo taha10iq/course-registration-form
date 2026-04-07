@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -26,20 +27,74 @@ abstract final class WhatsAppLauncher {
       courseType: courseType,
     );
 
-    final uri = Uri.https(
+    for (final uri in buildLaunchUris(message: message)) {
+      final launched = await _launchUri(uri);
+      if (launched) {
+        return;
+      }
+    }
+
+    throw Exception('whatsapp_launch_failed');
+  }
+
+  @visibleForTesting
+  static List<Uri> buildLaunchUris({
+    required String message,
+    bool? isWeb,
+    TargetPlatform? platform,
+  }) {
+    final normalizedNumber = normalizeNumber(AppConstants.whatsappRawNumber);
+    final runningOnWeb = isWeb ?? kIsWeb;
+    final currentPlatform = platform ?? defaultTargetPlatform;
+
+    final deepLink = Uri(
+      scheme: 'whatsapp',
+      host: 'send',
+      queryParameters: {
+        'phone': normalizedNumber,
+        'text': message,
+      },
+    );
+    final apiLink = Uri.https(
+      'api.whatsapp.com',
+      '/send',
+      {
+        'phone': normalizedNumber,
+        'text': message,
+      },
+    );
+    final shortLink = Uri.https(
       'wa.me',
-      '/${normalizeNumber(AppConstants.whatsappRawNumber)}',
+      '/$normalizedNumber',
       {'text': message},
     );
 
-    final launched = await launchUrl(
+    if (runningOnWeb) {
+      return [apiLink, shortLink];
+    }
+
+    return switch (currentPlatform) {
+      TargetPlatform.android || TargetPlatform.iOS => [
+          deepLink,
+          apiLink,
+          shortLink,
+        ],
+      _ => [apiLink, shortLink],
+    };
+  }
+
+  static Future<bool> _launchUri(Uri uri) {
+    if (kIsWeb) {
+      return launchUrl(
+        uri,
+        webOnlyWindowName: '_self',
+      );
+    }
+
+    return launchUrl(
       uri,
       mode: LaunchMode.externalApplication,
     );
-
-    if (!launched) {
-      throw Exception('whatsapp_launch_failed');
-    }
   }
 
   static String buildRegistrationMessage({
